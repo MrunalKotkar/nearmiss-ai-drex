@@ -1,16 +1,18 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Activity, ArrowRight, BookOpen, ChevronRight, CircleAlert, Clock3, Compass, FileSearch, Headphones, Layers3, MapPin, Plane, Radio, Radar, RefreshCw, Search, ShieldCheck, Signal } from "lucide-react";
+import { AlertCircle, BookOpen, ChevronDown, FileText, List, Menu, RefreshCw, Search } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 type CaseSummary = { acn: string; report_month: string; synopsis: string | null; anomaly: string | null; primary_problem: string | null; communication_breakdown: string | null };
 type Candidate = { case_id: string; narrative: string; retrieval_score: number };
@@ -28,26 +30,134 @@ async function readJSON<T>(url: string, options?: RequestInit): Promise<T> {
   return body as T;
 }
 
-const roleIcons = { pattern: Radar, evidence: BookOpen, investigation: FileSearch, coordinator: Compass };
-const roleNames = { pattern: "Pattern analyst", evidence: "Evidence reviewer", investigation: "Investigation planner", coordinator: "Coordinator" };
 const savedDemos: Record<string, string> = { "2134024": "Supported live run", "2132897": "Evidence review and second round" };
-const label = (text: string | null | undefined) => text ? text.replaceAll("_", " ") : "Unavailable";
+const agentSteps = [
+  { name: "Pattern scan", detail: "Compare the report with historical cases." },
+  { name: "Evidence review", detail: "Check located guidance passages." },
+  { name: "Investigation planning", detail: "Choose a human review step." },
+  { name: "Coordinator synthesis", detail: "Resolve findings and uncertainty." },
+];
+const agentNames: Record<string, string> = { pattern: "Pattern analyst", evidence: "Evidence reviewer", investigation: "Investigation planner", coordinator: "Coordinator" };
+const label = (value: string | null | undefined) => value ? value.replaceAll("_", " ") : "Not reported";
+const lastEvidence = (result: InvestigationResult | null) => [...(result?.agent_trace ?? [])].reverse().find((turn) => turn.agent === "evidence");
 
-function Eyebrow({ children }: { children: React.ReactNode }) { return <span className="eyebrow">{children}</span>; }
-function StatusDot({ online }: { online: boolean }) { return <span className={`status-dot ${online ? "online" : "offline"}`} aria-hidden="true" />; }
-
-function Trace({ result, cached }: { result: InvestigationResult; cached: boolean }) {
-  return <div className="space-y-5">
-    {cached && <Alert className="border-amber-300/30 bg-amber-400/10 text-amber-100"><Clock3 className="size-4" /><AlertTitle>Prior live run</AlertTitle><AlertDescription>This result was saved from an earlier service response.</AlertDescription></Alert>}
-    {result.status === "complete" ? <div className="recommendation-panel"><ShieldCheck className="size-8 shrink-0 text-sky-300" /><div><Eyebrow>Human review recommendation</Eyebrow><h3 className="mt-2 text-2xl font-semibold capitalize text-white">{label(result.final_recommended_next_action)}</h3><p className="mt-1 text-sm text-slate-300">Priority: <span className="capitalize text-sky-200">{label(result.review_priority)}</span> · Human analyst judgment remains required.</p></div></div> : <Alert className="border-amber-300/30 bg-amber-400/10 text-amber-100"><CircleAlert className="size-4" /><AlertTitle>Analysis incomplete</AlertTitle><AlertDescription>No final recommendation is available.</AlertDescription></Alert>}
-    {result.errors?.map((error, i) => <Alert key={i} variant="destructive"><CircleAlert className="size-4" /><AlertTitle>{error.agent ? `${label(error.agent)} error` : "Service error"}</AlertTitle><AlertDescription>{error.message}</AlertDescription></Alert>)}
-    {result.revised_claim && <Card className="surface-card"><CardContent className="space-y-2 pt-5"><Eyebrow>Targeted second round</Eyebrow><p className="text-sm text-slate-200">Pattern claim revised from <strong className="text-white">{label(result.initial_claim?.pattern_family)}</strong> to <strong className="text-sky-200">{label(result.revised_claim.pattern_family)}</strong> after the coordinator requested another review.</p></CardContent></Card>}
-    {!!result.policy_notes?.length && <Alert className="border-sky-400/25 bg-sky-400/10 text-sky-100"><CircleAlert className="size-4" /><AlertTitle>Decision policy</AlertTitle><AlertDescription>{result.policy_notes.join(" ")}</AlertDescription></Alert>}
-    <div className="flex justify-between gap-2 font-mono text-[11px] text-slate-400"><span>RUN {result.run_id}</span><span>{result.total_duration_seconds?.toFixed(1)}s · {result.agent_trace?.length ?? 0} decisions</span></div>
-    <div className="trace-list">{result.agent_trace?.map((message, i) => { const Icon = roleIcons[message.agent as keyof typeof roleIcons] ?? Activity; return <div className="trace-item" key={`${message.agent}-${message.round_number}-${i}`}><div className="trace-marker"><Icon className="size-4" /></div><Card className="surface-card"><CardHeader className="border-b border-slate-700/60 pb-4"><div className="flex items-center justify-between gap-3"><div><CardTitle className="text-base text-white">{roleNames[message.agent as keyof typeof roleNames] ?? label(message.agent)}</CardTitle><p className="mt-1 font-mono text-[10px] uppercase tracking-widest text-slate-400">Round {message.round_number} · {message.duration_seconds?.toFixed(1)}s</p></div><Badge className="border-sky-400/25 bg-sky-400/10 text-sky-200 capitalize">{label(message.selected_option)}</Badge></div></CardHeader><CardContent className="space-y-4 pt-4"><p className="text-sm leading-relaxed text-slate-200">{message.action_summary}</p><div className="rounded-lg border border-slate-700/60 bg-[#0b172a] p-3"><div className="micro-label">Decision question</div><p className="mt-2 text-xs leading-relaxed text-slate-300">{message.decision_question}</p></div><div className="space-y-2"><div className="micro-label">Returned decision scores</div>{Object.entries(message.probabilities ?? {}).sort((a,b) => b[1]-a[1]).map(([choice, score]) => <div className="flex items-center gap-3 text-xs" key={choice}><span className="w-32 truncate capitalize text-slate-300 sm:w-44">{label(choice)}</span><div className="h-1.5 flex-1 rounded-full bg-slate-700"><div className="h-full rounded-full bg-sky-400" style={{ width: `${Math.max(0, Math.min(score, 1)) * 100}%` }} /></div><span className="w-11 text-right font-mono text-slate-300">{(score * 100).toFixed(0)}%</span></div>)}</div><p className="text-xs text-slate-400">Uncertainty: {label(message.uncertainty_status)} · Referenced ACNs: {message.supporting_incident_ids?.join(", ") || "none"}</p>{message.evidence_refs?.map((ref, j) => <p className="text-xs text-sky-200" key={j}><BookOpen className="mr-1 inline size-3" />{ref.title} · {ref.page_or_region || "location unavailable"}</p>)}</CardContent></Card></div>; })}</div>
-    {result.references?.length > 0 && <Card className="surface-card"><CardHeader><CardTitle className="text-base text-white">Source passages</CardTitle></CardHeader><CardContent className="space-y-3">{result.references.map((ref, i) => <div className="rounded-lg border border-slate-700 p-4" key={i}><p className="text-sm font-semibold text-white">{ref.title} · {ref.page_or_region || "location unavailable"}</p><p className="mt-2 text-sm leading-relaxed text-slate-300">{ref.passage_text}</p><p className="mt-2 break-all font-mono text-[10px] text-slate-500">{ref.source} · {ref.status}</p></div>)}</CardContent></Card>}
-    <p className="text-[11px] text-slate-500">Drex scores are decision scores, not accident probabilities. Source passages appear only when returned by the analysis service.</p>
+function CaseList({ cases, selected, query, category, loading, total, onQuery, onCategory, onSelect }: {
+  cases: CaseSummary[]; selected: string; query: string; category: string; loading: boolean; total: number | undefined;
+  onQuery: (value: string) => void; onCategory: (value: string) => void; onSelect: (acn: string) => void;
+}) {
+  return <div className="case-list">
+    <div className="case-controls">
+      <div className="search-field"><Search className="size-4 text-muted-foreground" aria-hidden="true" /><Input aria-label="Search reports or ACN" placeholder="Search reports or ACN" value={query} onChange={(event) => onQuery(event.target.value)} className="h-9 border-0 bg-transparent px-0 shadow-none focus-visible:ring-0" /></div>
+      <label className="sr-only" htmlFor="case-filter">Filter reports</label>
+      <div className="relative"><select id="case-filter" value={category} onChange={(event) => onCategory(event.target.value)} className="filter-select"><option value="">All reports</option><option value="Communication">Communication</option></select><ChevronDown className="pointer-events-none absolute right-3 top-2.5 size-4 text-muted-foreground" aria-hidden="true" /></div>
+      <div className="flex items-center justify-between text-xs text-muted-foreground"><span>{loading ? "Loading reports…" : `${cases.length} reports${total !== undefined && cases.length !== total ? ` of ${total}` : ""}`}</span><span>June 2024</span></div>
+    </div>
+    <Separator />
+    <ScrollArea className="case-list-scroll">
+      <div className="case-items">
+        {loading && [1, 2, 3, 4].map((item) => <Skeleton key={item} className="h-19 rounded-md" />)}
+        {!loading && cases.length === 0 && <p className="p-4 text-sm text-muted-foreground">No reports match the filters.</p>}
+        {cases.map((item) => <button type="button" key={item.acn} onClick={() => onSelect(item.acn)} aria-current={item.acn === selected ? "true" : undefined} className={`case-item ${item.acn === selected ? "is-selected" : ""}`}>
+          <span className="font-mono text-xs font-semibold tabular-nums text-foreground">ACN {item.acn}</span>
+          <span className="line-clamp-2 text-left text-sm leading-5 text-foreground/85">{item.synopsis || "No synopsis available"}</span>
+          <span className="w-fit rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">{item.primary_problem || "Uncoded"}</span>
+        </button>)}
+      </div>
+    </ScrollArea>
   </div>;
+}
+
+function CaseSummaryBlock({ context, result }: { context: CaseContext; result: InvestigationResult | null }) {
+  const evidence = lastEvidence(result);
+  return <section className="case-summary" aria-label="Case summary">
+    <div className="summary-facts">
+      <div><span className="field-label">Primary problem</span><strong>{label(context.metadata.primary_problem)}</strong></div>
+      <div><span className="field-label">Flight phase</span><strong>{label(context.metadata.flight_phase)}</strong></div>
+      <div><span className="field-label">Location</span><strong>{label(context.metadata.locale)}</strong></div>
+      {result?.review_priority && <div><span className="field-label">Review priority</span><strong>{label(result.review_priority)}</strong></div>}
+      {evidence && <div><span className="field-label">Evidence status</span><strong className={evidence.uncertainty_status === "supported" ? "text-success" : "text-warning"}>{label(evidence.uncertainty_status)}</strong></div>}
+    </div>
+    <Separator />
+    <div className="summary-action"><span className="field-label">Recommended next analyst action</span><p className={result?.status === "complete" ? "font-semibold text-foreground" : "text-muted-foreground"}>{result?.status === "complete" ? label(result.final_recommended_next_action) : "Run analysis to get a recommendation"}</p></div>
+  </section>;
+}
+
+function EvidenceSheet({ reference }: { reference: EvidenceRef }) {
+  return <Sheet>
+    <SheetTrigger render={<Button variant="outline" size="xs" className="h-auto max-w-full justify-start whitespace-normal text-left" />}><BookOpen className="size-3.5 shrink-0" />{reference.title} · {reference.page_or_region || "Location unavailable"}</SheetTrigger>
+    <SheetContent side="right" className="w-full max-w-md gap-0 border-border shadow-none duration-150">
+      <SheetHeader className="border-b border-border p-6 pr-12"><SheetTitle>Source passage</SheetTitle><SheetDescription>Evidence returned by the analysis service.</SheetDescription></SheetHeader>
+      <div className="space-y-5 overflow-y-auto p-6 text-sm">
+        <div><span className="field-label">Document</span><p className="mt-1 font-medium">{reference.title}</p></div>
+        <div><span className="field-label">Source</span><a href={reference.source} target="_blank" rel="noreferrer" className="mt-1 block break-all text-primary underline underline-offset-4">{reference.source}</a></div>
+        <div><span className="field-label">Location</span><p className="mt-1">{reference.page_or_region || "Location unavailable"}</p></div>
+        <div><span className="field-label">Grounding status</span><p className={`mt-1 font-medium ${reference.status === "grounded" ? "text-success" : "text-warning"}`}>{label(reference.status)}</p></div>
+        <Separator />
+        <blockquote className="text-[15px] leading-7 text-foreground">{reference.passage_text}</blockquote>
+        <div><span className="field-label">Relevant claim</span><p className="mt-1">{reference.relevant_claim}</p></div>
+      </div>
+    </SheetContent>
+  </Sheet>;
+}
+
+function AgentTurn({ message, roundTwoLabel }: { message: AgentMessage; roundTwoLabel: string | null }) {
+  const challenged = message.agent === "evidence" && message.selected_option === "conflicts";
+  return <div className={`agent-turn ${challenged || roundTwoLabel ? "has-warning" : ""}`}>
+    <span className="turn-node" aria-hidden="true" />
+    <div className="min-w-0 space-y-2">
+      <div className="flex flex-wrap items-center gap-2"><h3 className="text-sm font-semibold">{agentNames[message.agent] ?? label(message.agent)}</h3><span className="text-xs text-muted-foreground">Round {message.round_number}</span>{roundTwoLabel && <Badge variant="outline" className="border-warning/30 bg-warning/10 text-warning">{roundTwoLabel}</Badge>}{challenged && <Badge variant="outline" className="border-warning/30 bg-warning/10 text-warning">Challenged by Evidence</Badge>}</div>
+      <p className="text-xs leading-5 text-muted-foreground">{message.decision_question}</p>
+      <p className="text-sm font-semibold text-foreground">{label(message.selected_option)}</p>
+      <div className="space-y-1.5" aria-label="Drex decision scores">{Object.entries(message.probabilities ?? {}).sort((a, b) => b[1] - a[1]).map(([choice, score]) => <div key={choice} className="score-row"><span className="truncate text-xs text-muted-foreground" title={label(choice)}>{label(choice)}</span><div className="h-1 overflow-hidden rounded-full bg-muted"><div className="h-full bg-primary" style={{ width: `${Math.max(0, Math.min(score, 1)) * 100}%` }} /></div><span className="whitespace-nowrap text-right text-[11px] tabular-nums text-muted-foreground">{(score * 100).toFixed(0)}% decision score</span></div>)}</div>
+      <p className="truncate text-xs text-muted-foreground" title={message.action_summary}>Shared state: {message.action_summary}</p>
+      {!!message.evidence_refs?.length && <div className="flex flex-wrap gap-1.5">{message.evidence_refs.map((reference, index) => <EvidenceSheet key={`${reference.document_id}-${reference.page_or_region}-${index}`} reference={reference} />)}</div>}
+    </div>
+  </div>;
+}
+
+function InvestigationPanel({ context, online, evidenceReady, analyzing, result, cached, error, onRun, onCached }: {
+  context: CaseContext | null; online: boolean; evidenceReady: boolean; analyzing: boolean; result: InvestigationResult | null; cached: boolean; error: string | null; onRun: () => void; onCached: () => void;
+}) {
+  const challengedByEvidence = result?.agent_trace.some((turn) => turn.agent === "evidence" && turn.round_number === 1 && turn.selected_option === "conflicts") ?? false;
+  return <aside className="investigation-panel" aria-label="Investigation">
+    <div className="investigation-top"><div><h2 className="text-lg font-semibold">Investigation</h2><p className="mt-1 text-xs text-muted-foreground">Four agents review the selected report.</p></div><Badge variant="outline" className="text-muted-foreground">Drex + NDI</Badge></div>
+    <div className="investigation-content">
+      <TooltipProvider><Tooltip><TooltipTrigger render={<span className="block w-full" />}><Button onClick={onRun} disabled={!online || !context || analyzing} variant={online ? "default" : "secondary"} className="w-full justify-center rounded-md" size="lg">{analyzing ? "Analysis in progress" : "Run collaborative analysis"}</Button></TooltipTrigger>{!online && <TooltipContent>Analysis service is offline. Refresh when the service starts.</TooltipContent>}</Tooltip></TooltipProvider>
+      {online && <p className="text-xs text-muted-foreground">Evidence service: {evidenceReady ? "ready" : "not ready"}</p>}
+      <Button variant="link" className="h-auto justify-start px-0 text-xs" onClick={onCached}>{context?.case_id && savedDemos[context.case_id] ? `Open saved run · ${savedDemos[context.case_id]}` : "Open a prior live run"}</Button>
+      {error && <Alert variant="destructive"><AlertCircle className="size-4" /><AlertTitle>Analysis unavailable</AlertTitle><AlertDescription>{error}</AlertDescription></Alert>}
+      {cached && result && <div className="rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">Cached run</div>}
+      {result?.status === "complete" && <div className="final-action"><span className="field-label">Final recommendation</span><p className="mt-1 font-semibold">{label(result.final_recommended_next_action)}</p><Badge variant="outline" className="mt-2">{label(result.review_priority)} priority</Badge></div>}
+      {result?.status === "incomplete" && <Alert className="border-warning/40 bg-warning/10 text-foreground"><AlertCircle className="size-4 text-warning" /><AlertTitle>Analysis incomplete</AlertTitle><AlertDescription>No final recommendation is available.</AlertDescription></Alert>}
+      {!!result?.errors?.length && result.errors.map((item, index) => <Alert key={`${item.code}-${index}`} variant="destructive"><AlertCircle className="size-4" /><AlertTitle>{item.agent ? `${label(item.agent)} error` : "Service error"}</AlertTitle><AlertDescription>{item.message}</AlertDescription></Alert>)}
+      {result?.revised_claim && <div className="border-l-2 border-warning pl-3 text-xs leading-5"><strong className="text-warning">Second round</strong><p className="mt-1 text-muted-foreground">Pattern claim changed from {label(result.initial_claim?.pattern_family)} to {label(result.revised_claim.pattern_family)}.</p></div>}
+      {!!result?.policy_notes?.length && <div className="text-xs leading-5 text-muted-foreground">{result.policy_notes.join(" ")}</div>}
+      <Separator />
+      {analyzing ? <div className="space-y-4" aria-live="polite"><p className="text-sm font-medium">Review in progress</p><p className="text-xs text-muted-foreground">The service returns the complete trace when the run finishes.</p><AgentStepper active /></div> : result ? <div className="space-y-4"><div className="flex items-center justify-between gap-2"><h3 className="text-sm font-semibold">Agent trace</h3><span className="text-xs tabular-nums text-muted-foreground">{result.agent_trace.length} turns · {result.total_duration_seconds.toFixed(1)}s</span></div><div className="timeline">{result.agent_trace.map((turn, index) => <AgentTurn key={`${turn.agent}-${turn.round_number}-${index}`} message={turn} roundTwoLabel={turn.round_number === 2 && turn.agent === "pattern" ? challengedByEvidence ? "Challenged by Evidence" : "Re-evaluated after uncertainty" : null} />)}</div><p className="break-all text-[11px] text-muted-foreground">Run {result.run_id}</p></div> : <AgentStepper active={false} />}
+      <p className="text-xs leading-5 text-muted-foreground">Decision scores show model preference, not accident probability. Source passages appear only when returned by the analysis service.</p>
+    </div>
+  </aside>;
+}
+
+function AgentStepper({ active }: { active: boolean }) {
+  return <ol className="space-y-4" aria-label="Investigation stages">{agentSteps.map((step, index) => <li key={step.name} className="flex gap-3"><span className={`step-dot ${active && index === 0 ? "is-active" : ""}`}>{active && index === 0 ? <span className="size-1.5 rounded-full bg-primary" /> : index + 1}</span><div><p className={`text-sm font-medium ${active && index === 0 ? "text-foreground" : "text-muted-foreground"}`}>{step.name}</p><p className="mt-0.5 text-xs text-muted-foreground">{active && index === 0 ? "Processing; later stages are pending." : step.detail}</p></div></li>)}</ol>;
+}
+
+function RelatedReports({ context }: { context: CaseContext }) {
+  const [open, setOpen] = useState<string | null>(null);
+  return <section className="space-y-4"><div><h3 className="text-base font-semibold">Related reports</h3><p className="mt-1 text-sm text-muted-foreground">{context.candidate_incidents.length} text-matched historical reports</p></div>
+    {context.candidate_incidents.length ? <Table><TableHeader><TableRow><TableHead>ACN</TableHead><TableHead className="w-24">Match</TableHead><TableHead className="w-32">Score</TableHead></TableRow></TableHeader><TableBody>{context.candidate_incidents.map((candidate) => <FragmentCandidate key={candidate.case_id} candidate={candidate} open={open === candidate.case_id} onToggle={() => setOpen(open === candidate.case_id ? null : candidate.case_id)} />)}</TableBody></Table> : <p className="text-sm text-muted-foreground">No historical neighbors found.</p>}
+    <p className="text-xs leading-5 text-muted-foreground">{context.retrieval_method}</p>
+  </section>;
+}
+
+function FragmentCandidate({ candidate, open, onToggle }: { candidate: Candidate; open: boolean; onToggle: () => void }) {
+  return <><TableRow><TableCell><button type="button" className="font-mono text-xs font-medium text-primary underline-offset-2 hover:underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring" onClick={onToggle} aria-expanded={open}>ACN {candidate.case_id}</button></TableCell><TableCell className="text-xs tabular-nums">{Math.round(candidate.retrieval_score * 100)}% match</TableCell><TableCell><div className="h-1.5 rounded-full bg-muted"><div className="h-full rounded-full bg-primary" style={{ width: `${Math.max(0, Math.min(candidate.retrieval_score, 1)) * 100}%` }} /></div></TableCell></TableRow>{open && <TableRow><TableCell colSpan={3} className="whitespace-normal pb-4 text-sm leading-6 text-muted-foreground">{candidate.narrative}</TableCell></TableRow>}</>;
+}
+
+function ReportDetails({ context, stats }: { context: CaseContext; stats: Stats | null }) {
+  const rows = [["Primary problem", context.metadata.primary_problem], ["Anomaly", context.metadata.anomaly], ["Flight phase", context.metadata.flight_phase], ["Location", context.metadata.locale], ["Communication", context.metadata.communication_breakdown], ["Human factors", context.metadata.human_factors], ["Local time", context.metadata.local_time]];
+  return <section className="space-y-7"><div><h3 className="mb-3 text-base font-semibold">Report details</h3><dl>{rows.map(([name, value]) => <div className="detail-row" key={name}><dt>{name}</dt><dd>{value || "Not reported"}</dd></div>)}</dl></div><div><h3 className="mb-1 text-base font-semibold">Archive context</h3><p className="mb-4 text-xs text-muted-foreground">Source-coded counts in this export only; they do not estimate incident prevalence.</p><div className="space-y-2">{stats?.primary_problems.slice(0, 8).map((item) => <div key={item.name} className="grid grid-cols-[minmax(105px,1fr)_minmax(50px,2fr)_30px] items-center gap-3 text-xs"><span className="truncate">{item.name}</span><div className="h-1.5 rounded-full bg-muted"><div className="h-full rounded-full bg-primary" style={{ width: `${(item.count / (stats.primary_problems[0]?.count || 1)) * 100}%` }} /></div><span className="text-right tabular-nums text-muted-foreground">{item.count}</span></div>)}</div>{stats && <p className="mt-5 text-xs text-muted-foreground">Source: <a href={stats.source_url} target="_blank" rel="noreferrer" className="text-primary underline underline-offset-4">NASA ASRS Database Online</a>. {stats.sample}</p>}</div></section>;
 }
 
 export default function Home() {
@@ -67,6 +177,7 @@ export default function Home() {
   const [result, setResult] = useState<InvestigationResult | null>(null);
   const [cached, setCached] = useState(false);
   const [activeTab, setActiveTab] = useState("brief");
+  const [mobileCasesOpen, setMobileCasesOpen] = useState(false);
 
   const refreshHealth = useCallback(async () => {
     try { const value = await readJSON<{status: string}>("/api/analysis-health"); setAnalysisOnline(value.status === "ready"); } catch { setAnalysisOnline(false); }
@@ -98,13 +209,12 @@ export default function Home() {
   }, [selected]);
 
   const selectedSummary = useMemo(() => cases.find((item) => item.acn === selected), [cases, selected]);
-  const displayedCases = useMemo(() => {
-    const featured = cases.find((item) => item.acn === "2134024");
-    return featured ? [featured, ...cases.filter((item) => item.acn !== featured.acn)] : cases;
-  }, [cases]);
+  const displayedCases = useMemo(() => { const featured = cases.find((item) => item.acn === "2134024"); return featured ? [featured, ...cases.filter((item) => item.acn !== featured.acn)] : cases; }, [cases]);
+  const selectCase = (acn: string) => { setSelected(acn); setActiveTab("brief"); setMobileCasesOpen(false); };
+
   async function runAnalysis() {
     if (!context) return;
-    setAnalyzing(true); setAnalysisError(null); setResult(null); setCached(false); setActiveTab("analysis");
+    setAnalyzing(true); setAnalysisError(null); setResult(null); setCached(false);
     try {
       const value = await readJSON<InvestigationResult>("/api/analyze", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(context) });
       if (value.contract_version !== "1.0" || value.case_id !== context.case_id || !Array.isArray(value.agent_trace)) throw new Error("Analysis service returned a mismatched result");
@@ -118,21 +228,25 @@ export default function Home() {
       let value = JSON.parse(localStorage.getItem(`nearmiss:run:${selected}`) || "null") as InvestigationResult | null;
       if (!value && savedDemos[selected]) value = await readJSON<InvestigationResult>(`/demos/${selected}.json`);
       if (!value || value.case_id !== selected || value.contract_version !== "1.0" || !Array.isArray(value.agent_trace)) throw new Error("No valid prior live run found for this case");
-      setResult(value); setCached(true); setAnalysisError(null); setActiveTab("analysis");
-    } catch (e) { setAnalysisError(e instanceof Error ? e.message : "Could not load saved run"); setActiveTab("analysis"); }
+      setResult(value); setCached(true); setAnalysisError(null);
+    } catch (e) { setAnalysisError(e instanceof Error ? e.message : "Could not load saved run"); }
   }
 
+  const caseList = <CaseList cases={displayedCases} selected={selected} query={query} category={category} loading={loadingCases} total={stats?.records} onQuery={setQuery} onCategory={setCategory} onSelect={selectCase} />;
   return <div className="app-shell">
-    <header className="topbar"><div className="brand-lockup"><span className="brand-mark"><Plane className="size-5 -rotate-45" /></span><div><span className="brand-name">NearMiss<span>AI</span></span><span className="brand-subtitle">AVIATION SAFETY INTELLIGENCE</span></div></div><span className="hidden font-mono text-[10px] tracking-[.24em] text-slate-400 lg:inline">OPERATIONS DESK / ASRS ARCHIVE</span><Badge className="border-emerald-300/30 bg-emerald-400/10 font-mono text-[10px] tracking-wider text-emerald-200"><StatusDot online={!!stats} /> {stats ? "DATA ONLINE" : "DATA LOADING"}</Badge></header>
-    <div className="dashboard-grid">
-      <aside className="sidebar-panel"><div className="mb-6 flex items-center justify-between"><Eyebrow>Case directory</Eyebrow><FileSearch className="size-4 text-sky-300" /></div><div className="search-box"><Search className="size-4 text-slate-400" /><Input aria-label="Search reports or ACN" className="border-0 bg-transparent p-0 text-sm text-white shadow-none focus-visible:ring-0" placeholder="Search report text or ACN..." value={query} onChange={(e) => setQuery(e.target.value)} /></div><div className="mt-3 flex gap-2"><Button size="sm" variant={category === "" ? "default" : "outline"} className="filter-button" onClick={() => setCategory("")}>All reports</Button><Button size="sm" variant={category === "Communication" ? "default" : "outline"} className="filter-button" onClick={() => setCategory("Communication")}>Communication</Button></div><div className="mt-4 space-y-1"><div className="micro-label">Saved real runs</div><Button variant="ghost" size="sm" className="h-auto w-full justify-start px-0 text-xs text-sky-200" onClick={() => { setCategory(""); setQuery("2134024"); setSelected("2134024"); setActiveTab("brief"); }}>Supported case · 2134024</Button><Button variant="ghost" size="sm" className="h-auto w-full justify-start px-0 text-xs text-sky-200" onClick={() => { setCategory(""); setQuery("2132897"); setSelected("2132897"); setActiveTab("brief"); }}>Second round · 2132897</Button></div><div className="mt-7 flex items-end justify-between border-b border-slate-700/70 pb-3"><div><div className="micro-label">June 2024 / records</div><div className="mt-1 text-3xl font-semibold tabular-nums text-white">{loadingCases ? "—" : cases.length}</div></div><span className="text-xs text-slate-400">of {stats?.records ?? "—"} in archive</span></div><ScrollArea className="case-scroll mt-3"><div className="space-y-1.5 pb-3">{loadingCases && [1,2,3].map((i) => <Skeleton key={i} className="h-24 bg-slate-700/50" />)}{!loadingCases && cases.length === 0 && <p className="p-4 text-sm text-slate-400">No reports match the filters.</p>}{displayedCases.map((item) => <button type="button" onClick={() => { setSelected(item.acn); setActiveTab("brief"); }} key={item.acn} className={`case-row ${item.acn === selected ? "active" : ""}`}><div className="flex items-center justify-between gap-2"><span className="font-mono text-xs font-semibold tracking-wider text-sky-200">ACN {item.acn}</span><ChevronRight className="size-3.5 text-slate-500" /></div><p className="mt-2 line-clamp-2 text-left text-xs leading-relaxed text-slate-300">{item.synopsis || "No synopsis available"}</p><div className="mt-2 text-left font-mono text-[10px] uppercase tracking-wider text-slate-500">{item.primary_problem || "Uncoded"}</div></button>)}</div></ScrollArea><div className="sidebar-foot"><ShieldCheck className="size-4 shrink-0 text-sky-300" /><span>De-identified ASRS reports. NASA does not independently verify submissions.</span></div></aside>
-      <main className="main-panel"><section className="hero-panel"><div className="hero-grid" aria-hidden="true" /><div className="radar-graphic" aria-hidden="true"><div className="radar-ring radar-ring-one" /><div className="radar-ring radar-ring-two" /><div className="radar-ring radar-ring-three" /><div className="radar-cross radar-cross-h" /><div className="radar-cross radar-cross-v" /><div className="radar-sweep" /><span className="radar-blip" /></div><div className="relative z-10 max-w-xl"><div className="flex items-center gap-2"><span className="hero-pulse" /><Eyebrow>Investigation workspace</Eyebrow></div><h1 className="mt-5 text-3xl font-semibold leading-tight tracking-tight text-white sm:text-4xl">Every incident has<br /><span className="text-sky-300">a deeper signal.</span></h1><p className="mt-4 max-w-lg text-sm leading-relaxed text-slate-300">Explore real aviation safety narratives, compare related reports, and follow the evidence behind each collaborative investigation.</p><div className="mt-6 flex flex-wrap items-center gap-4 font-mono text-[10px] uppercase tracking-widest text-slate-400"><span className="flex items-center gap-1.5"><Signal className="size-3.5 text-sky-300" /> {stats?.records ?? "—"} reports loaded</span><span className="flex items-center gap-1.5"><Radio className="size-3.5 text-sky-300" /> June 2024 export</span></div></div></section>
-        <div className="content-padding">{error && <Alert className="mb-5 border-red-400/30 bg-red-400/10 text-red-100"><CircleAlert className="size-4" /><AlertTitle>Data service issue</AlertTitle><AlertDescription>{error}</AlertDescription></Alert>}<div className="section-heading"><div><Eyebrow>Active report</Eyebrow><h2 className="mt-2 text-2xl font-semibold tracking-tight text-white">{selected ? `Incident ${selected}` : "Select an incident"}</h2></div><div className="flex items-center gap-2"><Badge className="border-sky-300/25 bg-sky-300/10 text-sky-200">ASRS SOURCE</Badge><span className="font-mono text-[11px] text-slate-400">{selectedSummary?.report_month || "2024-06"}</span></div></div>
-        {loadingContext ? <div className="grid gap-5 lg:grid-cols-3"><Skeleton className="h-80 bg-slate-700/30 lg:col-span-2" /><Skeleton className="h-80 bg-slate-700/30" /></div> : context ? <Tabs value={activeTab} onValueChange={setActiveTab} className="gap-5"><TabsList className="h-auto w-full justify-start rounded-none border-b border-slate-700/80 bg-transparent p-0"><TabsTrigger value="brief" className="tab-trigger">Case brief</TabsTrigger><TabsTrigger value="analysis" className="tab-trigger">Agent analysis {result?.agent_trace?.length ? <span className="ml-1.5 rounded bg-sky-400/15 px-1.5 text-[10px] text-sky-200">{result.agent_trace.length}</span> : null}</TabsTrigger><TabsTrigger value="corpus" className="tab-trigger">Corpus signals</TabsTrigger></TabsList>
-          <TabsContent value="brief" className="mt-0"><div className="grid gap-5 xl:grid-cols-[minmax(0,1.65fr)_minmax(290px,1fr)]"><div className="space-y-5"><Card className="surface-card"><CardHeader className="pb-2"><div className="flex items-center gap-2 text-sky-300"><Headphones className="size-4" /><Eyebrow>Reporter narrative</Eyebrow></div><CardTitle className="mt-2 text-lg leading-snug text-white">{context.metadata.synopsis || selectedSummary?.synopsis || "Original ASRS report"}</CardTitle></CardHeader><CardContent><Separator className="mb-5 bg-slate-700/70" /><p className="narrative-text whitespace-pre-wrap">{context.narrative}</p>{context.metadata.supplemental_narrative && <details className="mt-5 rounded-lg border border-slate-700/70 p-4"><summary className="cursor-pointer text-sm font-medium text-sky-200">Read supplemental reporter narrative</summary><p className="mt-3 whitespace-pre-wrap text-sm leading-7 text-slate-300">{context.metadata.supplemental_narrative}</p></details>}</CardContent></Card><Card className="surface-card"><CardHeader><div className="flex items-center justify-between gap-3"><div><Eyebrow>Historical context</Eyebrow><CardTitle className="mt-2 text-lg text-white">Related reports</CardTitle></div><Badge className="border-slate-600 bg-slate-700/40 font-mono text-slate-200">{context.candidate_incidents.length} MATCHES</Badge></div></CardHeader><CardContent className="space-y-3">{context.candidate_incidents.map((candidate) => <details className="candidate-card" key={candidate.case_id}><summary className="flex cursor-pointer list-none items-center justify-between gap-3"><div className="flex items-center gap-3"><span className="candidate-icon"><Layers3 className="size-4" /></span><span className="font-mono text-sm font-medium text-white">ACN {candidate.case_id}</span></div><span className="font-mono text-xs text-sky-300">MATCH {Math.round(candidate.retrieval_score * 100)}%</span></summary><p className="mt-4 border-t border-slate-700/60 pt-4 text-sm leading-7 text-slate-300">{candidate.narrative}</p></details>)}{context.candidate_incidents.length === 0 && <p className="text-sm text-slate-400">No historical neighbors found.</p>}<p className="pt-2 text-[11px] leading-relaxed text-slate-500">{context.retrieval_method}</p></CardContent></Card></div><div className="space-y-5"><Card className="surface-card"><CardHeader><Eyebrow>Case telemetry</Eyebrow><CardTitle className="mt-2 text-lg text-white">Report details</CardTitle></CardHeader><CardContent>{[["Primary problem",context.metadata.primary_problem],["Anomaly",context.metadata.anomaly],["Flight phase",context.metadata.flight_phase],["Location",context.metadata.locale],["Communication",context.metadata.communication_breakdown],["Human factors",context.metadata.human_factors],["Local time",context.metadata.local_time]].map(([key,value]) => <div className="detail-row" key={key}><span>{key}</span><span className="max-w-[58%] text-right text-slate-100">{value || "Not reported"}</span></div>)}</CardContent></Card><Card className="border-sky-400/25 bg-gradient-to-br from-[#173351] to-[#10233e] text-white"><CardContent className="space-y-4 pt-6"><div className="flex items-center justify-between"><span className="rounded-xl border border-sky-300/25 bg-sky-400/10 p-3"><Radar className="size-6 text-sky-300" /></span><StatusDot online={analysisOnline} /></div><div><Eyebrow>Collaborative analysis</Eyebrow><h3 className="mt-2 text-xl font-semibold">Investigate this case</h3><p className="mt-2 text-sm leading-relaxed text-slate-300">Send this report and its text-matched incidents to the live agent service.</p></div><Button className="w-full bg-sky-400 font-semibold text-[#06213a] hover:bg-sky-300" onClick={runAnalysis} disabled={analyzing || !analysisOnline}>{analyzing ? "Analyzing…" : analysisOnline ? "Run collaborative analysis" : "Analysis service offline"}<ArrowRight className="ml-2 size-4" /></Button>{!analysisOnline && <p className="text-xs text-amber-200">The case browser is ready. Live decisions appear when Builder B’s service starts.</p>}{analysisOnline && <p className="text-xs text-slate-300">Evidence service: {evidenceReady ? "ready" : "not ready"}</p>}<Button variant="link" className="h-auto px-0 text-xs text-sky-300" onClick={loadCached}>{savedDemos[selected] ? `Open saved demo: ${savedDemos[selected]}` : "Open a prior live run"}</Button><Button variant="ghost" size="sm" className="text-slate-300" onClick={refreshHealth}><RefreshCw className="mr-1 size-3" />Refresh status</Button></CardContent></Card><div className="flex items-start gap-3 rounded-lg border border-slate-700/60 bg-[#111d31] p-4 text-xs leading-relaxed text-slate-400"><MapPin className="mt-0.5 size-4 shrink-0 text-sky-300" /><span>Voluntary, de-identified reports. Text similarity and report counts do not measure accident risk.</span></div></div></div></TabsContent>
-          <TabsContent value="analysis" className="mt-0"><div className="mx-auto max-w-3xl">{analyzing ? <Card className="surface-card"><CardContent className="flex flex-col items-center gap-5 py-16 text-center"><Radar className="size-10 animate-pulse text-sky-300" /><h3 className="text-xl font-semibold text-white">Agents are reviewing the case</h3><p className="max-w-md text-sm text-slate-400">Waiting for live decisions. This may take up to two minutes.</p></CardContent></Card> : result ? <Trace result={result} cached={cached} /> : <Card className="surface-card"><CardContent className="flex flex-col items-center gap-4 py-16 text-center"><Radar className="size-10 text-sky-300" /><h3 className="text-xl font-semibold text-white">No analysis run yet</h3><p className="max-w-md text-sm text-slate-400">Only actual service responses appear here. Run the analysis from the case brief when the agent service is online.</p>{analysisError && <Alert className="mt-3 max-w-lg border-red-400/30 bg-red-400/10 text-red-100"><CircleAlert className="size-4" /><AlertTitle>Analysis unavailable</AlertTitle><AlertDescription>{analysisError}</AlertDescription></Alert>}</CardContent></Card>}</div></TabsContent>
-          <TabsContent value="corpus" className="mt-0"><Card className="surface-card"><CardHeader><Eyebrow>June 2024 archive</Eyebrow><CardTitle className="mt-2 text-xl text-white">Source-coded primary problems</CardTitle><p className="text-sm text-slate-400">Counts in this export only. They do not estimate incident prevalence.</p></CardHeader><CardContent className="space-y-5">{stats?.primary_problems.slice(0, 8).map((item) => <div key={item.name} className="grid grid-cols-[minmax(100px,180px)_1fr_38px] items-center gap-4 text-sm"><span className="truncate text-slate-300">{item.name}</span><div className="h-2 rounded-full bg-slate-700/80"><div className="h-full rounded-full bg-gradient-to-r from-sky-500 to-cyan-300" style={{ width: `${(item.count / (stats.primary_problems[0]?.count || 1)) * 100}%` }} /></div><span className="text-right font-mono text-sky-200">{item.count}</span></div>)}<Separator className="bg-slate-700" /><p className="text-xs leading-relaxed text-slate-400">Source: <a className="text-sky-300 underline underline-offset-4" href={stats?.source_url} target="_blank" rel="noreferrer">NASA ASRS Database Online</a>. {stats?.sample}</p></CardContent></Card></TabsContent>
-        </Tabs> : <Card className="surface-card"><CardContent className="py-12 text-sm text-slate-400">Select a report to load its original narrative.</CardContent></Card>}</div></main>
-    </div><footer className="footer-bar"><span>NEARMISS AI / ANALYST TRIAGE</span><span>DATA: NASA ASRS · LOCAL DEMO</span><span>HUMAN REVIEW REQUIRED</span></footer>
+    <header className="topbar"><div className="wordmark">NearMiss <span>AI</span></div><div className="flex items-center gap-2"><Badge variant="outline" className={`status-pill ${analysisOnline ? "is-online" : "is-offline"}`}><span className="status-dot" />Analysis {analysisOnline ? "online" : "offline"}</Badge><Button variant="ghost" size="icon-sm" onClick={refreshHealth} aria-label="Refresh analysis status" title="Refresh analysis status"><RefreshCw className="size-4" /></Button></div></header>
+    <div className="workspace-grid">
+      <aside className="case-column" aria-label="Case directory">{caseList}</aside>
+      <main className="case-main">
+        <div className="case-main-inner">
+          <div className="mobile-case-trigger"><Sheet open={mobileCasesOpen} onOpenChange={setMobileCasesOpen}><SheetTrigger render={<Button variant="outline" size="sm" />}><Menu className="size-4" />Browse cases</SheetTrigger><SheetContent side="left" className="w-[min(100vw,340px)] max-w-none gap-0 border-border bg-background p-0 shadow-none duration-150"><SheetHeader className="border-b border-border p-4"><SheetTitle>Case directory</SheetTitle><SheetDescription>Search the June 2024 ASRS export.</SheetDescription></SheetHeader>{caseList}</SheetContent></Sheet></div>
+          {error && <Alert variant="destructive" className="mb-5"><AlertCircle className="size-4" /><AlertTitle>Data service issue</AlertTitle><AlertDescription>{error}</AlertDescription></Alert>}
+          <div className="case-heading"><div><p className="field-label">Selected report</p><h1>Incident <span className="font-mono tabular-nums">{selected}</span></h1><p className="mt-1 text-xs text-muted-foreground">NASA ASRS · {selectedSummary?.report_month || "2024-06"}</p></div><Badge variant="outline">ASRS source</Badge></div>
+          {loadingContext ? <div className="space-y-4"><Skeleton className="h-35 rounded-lg" /><Skeleton className="h-8 w-48" /><Skeleton className="h-64 rounded-lg" /></div> : context ? <><CaseSummaryBlock context={context} result={result} /><Tabs value={activeTab} onValueChange={setActiveTab} className="case-tabs"><TabsList variant="line" className="w-full justify-start gap-5 border-b border-border"><TabsTrigger value="brief" className="case-tab"><FileText className="size-4" />Brief</TabsTrigger><TabsTrigger value="related" className="case-tab"><List className="size-4" />Related</TabsTrigger><TabsTrigger value="details" className="case-tab">Details</TabsTrigger></TabsList><TabsContent value="brief" className="case-tab-content"><p className="mb-3 text-sm font-medium">{context.metadata.synopsis || selectedSummary?.synopsis || "Original ASRS report"}</p><p className="narrative-text whitespace-pre-wrap">{context.narrative}</p>{context.metadata.supplemental_narrative && <details className="mt-6 border-t border-border pt-4"><summary className="cursor-pointer text-sm font-medium text-primary focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-ring">Supplemental reporter narrative</summary><p className="narrative-text mt-4 whitespace-pre-wrap">{context.metadata.supplemental_narrative}</p></details>}</TabsContent><TabsContent value="related" className="case-tab-content"><RelatedReports context={context} /></TabsContent><TabsContent value="details" className="case-tab-content"><ReportDetails context={context} stats={stats} /></TabsContent></Tabs></> : <p className="text-sm text-muted-foreground">Select a report to load its original narrative.</p>}
+        </div>
+      </main>
+      <InvestigationPanel context={context} online={analysisOnline} evidenceReady={evidenceReady} analyzing={analyzing} result={result} cached={cached} error={analysisError} onRun={runAnalysis} onCached={loadCached} />
+    </div>
+    <footer className="app-footer">De-identified ASRS reports, unverified by NASA. Text similarity is not a risk score. Human review required.</footer>
   </div>;
 }
