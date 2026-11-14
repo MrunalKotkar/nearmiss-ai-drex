@@ -12,16 +12,19 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 .venv/
+.venv*/
 venv/
 *.egg-info/
 
 # Local datasets, databases, and generated evidence
 data/*
 !data/.gitkeep
+!data/manifest.md
 *.duckdb
 *.duckdb.wal
 evidence/cache/
 evidence/downloads/
+data/runs/
 
 # UI and OS artifacts
 .streamlit/secrets.toml

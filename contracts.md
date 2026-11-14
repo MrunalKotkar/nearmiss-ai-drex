@@ -1,6 +1,6 @@
-# Shared interface contract (v1 draft)
+# Shared interface contract (v1 agreed)
 
-This is the proposed handoff between Builder A and Builder B. Both teammates should explicitly agree to any changes in field names or meanings before implementing against them. Fixtures under `tests/fixtures/` are synthetic and demonstrate shape only.
+This is the agreed handoff between Builder A and Builder B. Both teammates should explicitly agree to any changes in field names or meanings before implementing against them. Files named `*_mock.json` under `tests/fixtures/` are synthetic interface examples only. Files named `asrs_case_*.json` contain real NASA ASRS narratives from the documented June 2024 export.
 
 ## General rules
 
@@ -95,6 +95,7 @@ Use HTTP 422 for an invalid request shape. For a valid request whose external pr
 
 ## Fixture use
 
+- `asrs_case_2134849.json` and `asrs_case_2126005.json`: real ASRS `CaseContext` values generated from the June 2024 export. Builder B can use them to exercise the live service without Builder A's database.
 - `case_pattern_mock.json` and `result_pattern_mock.json`: synthetic successful round with four messages and an illustrative citation.
 - `case_uncertain_mock.json` and `result_uncertain_mock.json`: synthetic incomplete run caused by an external service error.
 - Fixture passages, scores, and provider details are fabricated solely to exercise interface rendering. They are never demo evidence or benchmark data.
