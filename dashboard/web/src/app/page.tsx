@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertCircle, BookOpen, ChevronDown, FileText, List, Menu, RefreshCw, Search } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -21,7 +21,7 @@ type EvidenceRef = { document_id: string; title: string; source: string; page_or
 type PatternClaim = { pattern_family: string; supporting_incident_ids: string[] };
 type AgentMessage = { agent: string; round_number: number; input_summary: string; decision_question: string; allowed_options: string[]; selected_option: string; probabilities: Record<string, number>; supporting_incident_ids: string[]; evidence_refs: EvidenceRef[]; uncertainty_status: string; duration_seconds: number; action_summary: string };
 type InvestigationResult = { contract_version: string; case_id: string; run_id: string; status: "complete" | "incomplete"; agent_trace: AgentMessage[]; initial_claim: PatternClaim | null; revised_claim: PatternClaim | null; final_recommended_next_action: string | null; review_priority: string | null; references: EvidenceRef[]; total_duration_seconds: number; provider_model_details: Record<string, unknown>; errors: { code: string; message: string; agent: string | null }[]; policy_notes?: string[] };
-type Stats = { records: number; sample: string; source_url: string; primary_problems: { name: string; count: number }[] };
+type Stats = { records: number; first_month: string | null; last_month: string | null; sample: string; source_url: string; primary_problems: { name: string; count: number }[] };
 
 async function readJSON<T>(url: string, options?: RequestInit): Promise<T> {
   const response = await fetch(url, { cache: "no-store", ...options });
@@ -39,18 +39,21 @@ const agentSteps = [
 ];
 const agentNames: Record<string, string> = { pattern: "Pattern analyst", evidence: "Evidence reviewer", investigation: "Investigation planner", coordinator: "Coordinator" };
 const label = (value: string | null | undefined) => value ? value.replaceAll("_", " ") : "Not reported";
+const PAGE_SIZE = 1000;
+const monthLabel = (month: string) => { const [year, number] = month.split("-"); return new Date(Number(year), Number(number) - 1, 1).toLocaleString("en-US", { month: "short", year: "numeric" }); };
+const periodLabel = (stats: Stats | null) => stats?.first_month && stats.last_month ? (stats.first_month === stats.last_month ? monthLabel(stats.first_month) : `${monthLabel(stats.first_month)} – ${monthLabel(stats.last_month)}`) : "";
 const lastEvidence = (result: InvestigationResult | null) => [...(result?.agent_trace ?? [])].reverse().find((turn) => turn.agent === "evidence");
 
-function CaseList({ cases, selected, query, category, loading, total, onQuery, onCategory, onSelect }: {
-  cases: CaseSummary[]; selected: string; query: string; category: string; loading: boolean; total: number | undefined;
-  onQuery: (value: string) => void; onCategory: (value: string) => void; onSelect: (acn: string) => void;
+function CaseList({ cases, selected, query, category, loading, loadingMore, total, period, onQuery, onCategory, onSelect, onLoadMore }: {
+  cases: CaseSummary[]; selected: string; query: string; category: string; loading: boolean; loadingMore: boolean; total: number | undefined; period: string;
+  onQuery: (value: string) => void; onCategory: (value: string) => void; onSelect: (acn: string) => void; onLoadMore: () => void;
 }) {
   return <div className="case-list">
     <div className="case-controls">
       <div className="search-field"><Search className="size-4 text-muted-foreground" aria-hidden="true" /><Input aria-label="Search reports or ACN" placeholder="Search reports or ACN" value={query} onChange={(event) => onQuery(event.target.value)} className="h-9 border-0 bg-transparent px-0 shadow-none focus-visible:ring-0" /></div>
       <label className="sr-only" htmlFor="case-filter">Filter reports</label>
       <div className="relative"><select id="case-filter" value={category} onChange={(event) => onCategory(event.target.value)} className="filter-select"><option value="">All reports</option><option value="Communication">Communication</option></select><ChevronDown className="pointer-events-none absolute right-3 top-2.5 size-4 text-muted-foreground" aria-hidden="true" /></div>
-      <div className="flex items-center justify-between text-xs text-muted-foreground"><span>{loading ? "Loading reports…" : `${cases.length} reports${total !== undefined && cases.length !== total ? ` of ${total}` : ""}`}</span><span>June 2024</span></div>
+      <div className="flex items-center justify-between text-xs text-muted-foreground"><span>{loading ? "Loading reports…" : `${cases.length} reports${total !== undefined && cases.length !== total ? ` of ${total}` : ""}`}</span><span>{period}</span></div>
     </div>
     <Separator />
     <ScrollArea className="case-list-scroll">
@@ -62,6 +65,7 @@ function CaseList({ cases, selected, query, category, loading, total, onQuery, o
           <span className="line-clamp-2 text-left text-sm leading-5 text-foreground/85">{item.synopsis || "No synopsis available"}</span>
           <span className="w-fit rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">{item.primary_problem || "Uncoded"}</span>
         </button>)}
+        {!loading && total !== undefined && cases.length < total && <Button type="button" variant="outline" size="sm" onClick={onLoadMore} disabled={loadingMore}>{loadingMore ? "Loading…" : `Load more (${total - cases.length} remaining)`}</Button>}
       </div>
     </ScrollArea>
   </div>;
@@ -170,6 +174,9 @@ export default function Home() {
   const [analysisOnline, setAnalysisOnline] = useState(false);
   const [evidenceReady, setEvidenceReady] = useState(false);
   const [loadingCases, setLoadingCases] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [caseTotal, setCaseTotal] = useState<number | undefined>(undefined);
+  const listKey = useRef("");
   const [loadingContext, setLoadingContext] = useState(true);
   const [analyzing, setAnalyzing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -189,9 +196,10 @@ export default function Home() {
     const controller = new AbortController();
     const timer = setTimeout(() => {
       setLoadingCases(true);
-      const params = new URLSearchParams({ phrase: query, category, month: "2024-06", limit: "1000" });
-      readJSON<{cases: CaseSummary[]}>(`/api/data/cases?${params}`, { signal: controller.signal })
-        .then((value) => { setCases(value.cases); setError(null); if (value.cases.length) setSelected((current) => value.cases.some((item) => item.acn === current) ? current : value.cases[0].acn); })
+      listKey.current = `${query}|${category}`;
+      const params = new URLSearchParams({ phrase: query, category, limit: String(PAGE_SIZE) });
+      readJSON<{cases: CaseSummary[]; total: number}>(`/api/data/cases?${params}`, { signal: controller.signal })
+        .then((value) => { setCases(value.cases); setCaseTotal(value.total); setError(null); if (value.cases.length) setSelected((current) => value.cases.some((item) => item.acn === current) ? current : value.cases[0].acn); })
         .catch((e) => { if (e.name !== "AbortError") setError(e.message); })
         .finally(() => setLoadingCases(false));
     }, 220);
@@ -210,6 +218,18 @@ export default function Home() {
 
   const selectedSummary = useMemo(() => cases.find((item) => item.acn === selected), [cases, selected]);
   const displayedCases = useMemo(() => { const featured = cases.find((item) => item.acn === "2134024"); return featured ? [featured, ...cases.filter((item) => item.acn !== featured.acn)] : cases; }, [cases]);
+  async function loadMoreCases() {
+    const key = `${query}|${category}`;
+    setLoadingMore(true);
+    try {
+      const params = new URLSearchParams({ phrase: query, category, limit: String(PAGE_SIZE), offset: String(cases.length) });
+      const value = await readJSON<{cases: CaseSummary[]; total: number}>(`/api/data/cases?${params}`);
+      if (listKey.current !== key) return; // filters changed while loading; discard the stale page
+      setCases((current) => { const seen = new Set(current.map((item) => item.acn)); return [...current, ...value.cases.filter((item) => !seen.has(item.acn))]; });
+      setCaseTotal(value.total);
+    } catch (e) { setError(e instanceof Error ? e.message : "Could not load more reports"); }
+    finally { setLoadingMore(false); }
+  }
   const selectCase = (acn: string) => { setSelected(acn); setActiveTab("brief"); setMobileCasesOpen(false); };
 
   async function runAnalysis() {
@@ -232,16 +252,16 @@ export default function Home() {
     } catch (e) { setAnalysisError(e instanceof Error ? e.message : "Could not load saved run"); }
   }
 
-  const caseList = <CaseList cases={displayedCases} selected={selected} query={query} category={category} loading={loadingCases} total={stats?.records} onQuery={setQuery} onCategory={setCategory} onSelect={selectCase} />;
+  const caseList = <CaseList cases={displayedCases} selected={selected} query={query} category={category} loading={loadingCases} loadingMore={loadingMore} total={caseTotal} period={periodLabel(stats)} onQuery={setQuery} onCategory={setCategory} onSelect={selectCase} onLoadMore={loadMoreCases} />;
   return <div className="app-shell">
     <header className="topbar"><div className="wordmark">NearMiss <span>AI</span></div><div className="flex items-center gap-2"><Badge variant="outline" className={`status-pill ${analysisOnline ? "is-online" : "is-offline"}`}><span className="status-dot" />Analysis {analysisOnline ? "online" : "offline"}</Badge><Button variant="ghost" size="icon-sm" onClick={refreshHealth} aria-label="Refresh analysis status" title="Refresh analysis status"><RefreshCw className="size-4" /></Button></div></header>
     <div className="workspace-grid">
       <aside className="case-column" aria-label="Case directory">{caseList}</aside>
       <main className="case-main">
         <div className="case-main-inner">
-          <div className="mobile-case-trigger"><Sheet open={mobileCasesOpen} onOpenChange={setMobileCasesOpen}><SheetTrigger render={<Button variant="outline" size="sm" />}><Menu className="size-4" />Browse cases</SheetTrigger><SheetContent side="left" className="w-[min(100vw,340px)] max-w-none gap-0 border-border bg-background p-0 shadow-none duration-150"><SheetHeader className="border-b border-border p-4"><SheetTitle>Case directory</SheetTitle><SheetDescription>Search the June 2024 ASRS export.</SheetDescription></SheetHeader>{caseList}</SheetContent></Sheet></div>
+          <div className="mobile-case-trigger"><Sheet open={mobileCasesOpen} onOpenChange={setMobileCasesOpen}><SheetTrigger render={<Button variant="outline" size="sm" />}><Menu className="size-4" />Browse cases</SheetTrigger><SheetContent side="left" className="w-[min(100vw,340px)] max-w-none gap-0 border-border bg-background p-0 shadow-none duration-150"><SheetHeader className="border-b border-border p-4"><SheetTitle>Case directory</SheetTitle><SheetDescription>Search the ASRS export.</SheetDescription></SheetHeader>{caseList}</SheetContent></Sheet></div>
           {error && <Alert variant="destructive" className="mb-5"><AlertCircle className="size-4" /><AlertTitle>Data service issue</AlertTitle><AlertDescription>{error}</AlertDescription></Alert>}
-          <div className="case-heading"><div><p className="field-label">Selected report</p><h1>Incident <span className="font-mono tabular-nums">{selected}</span></h1><p className="mt-1 text-xs text-muted-foreground">NASA ASRS · {selectedSummary?.report_month || "2024-06"}</p></div><Badge variant="outline">ASRS source</Badge></div>
+          <div className="case-heading"><div><p className="field-label">Selected report</p><h1>Incident <span className="font-mono tabular-nums">{selected}</span></h1><p className="mt-1 text-xs text-muted-foreground">NASA ASRS · {selectedSummary?.report_month || context?.metadata.report_month || ""}</p></div><Badge variant="outline">ASRS source</Badge></div>
           {loadingContext ? <div className="space-y-4"><Skeleton className="h-35 rounded-lg" /><Skeleton className="h-8 w-48" /><Skeleton className="h-64 rounded-lg" /></div> : context ? <><CaseSummaryBlock context={context} result={result} /><Tabs value={activeTab} onValueChange={setActiveTab} className="case-tabs"><TabsList variant="line" className="w-full justify-start gap-5 border-b border-border"><TabsTrigger value="brief" className="case-tab"><FileText className="size-4" />Brief</TabsTrigger><TabsTrigger value="related" className="case-tab"><List className="size-4" />Related</TabsTrigger><TabsTrigger value="details" className="case-tab">Details</TabsTrigger></TabsList><TabsContent value="brief" className="case-tab-content"><p className="mb-3 text-sm font-medium">{context.metadata.synopsis || selectedSummary?.synopsis || "Original ASRS report"}</p><p className="narrative-text whitespace-pre-wrap">{context.narrative}</p>{context.metadata.supplemental_narrative && <details className="mt-6 border-t border-border pt-4"><summary className="cursor-pointer text-sm font-medium text-primary focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-ring">Supplemental reporter narrative</summary><p className="narrative-text mt-4 whitespace-pre-wrap">{context.metadata.supplemental_narrative}</p></details>}</TabsContent><TabsContent value="related" className="case-tab-content"><RelatedReports context={context} /></TabsContent><TabsContent value="details" className="case-tab-content"><ReportDetails context={context} stats={stats} /></TabsContent></Tabs></> : <p className="text-sm text-muted-foreground">Select a report to load its original narrative.</p>}
         </div>
       </main>

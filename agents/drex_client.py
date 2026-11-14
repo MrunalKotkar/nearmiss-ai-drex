@@ -45,6 +45,8 @@ class DrexOutcome:
     model: str | None = None
     request_id: str | None = None
     duration_seconds: float = 0.0
+    input_tokens: int | None = None  # billed input tokens (usage.input_tokens)
+    server_time_ms: float | None = None  # Drex-reported model time (evaluation_time_ms)
 
 
 class DrexError(Exception):
@@ -127,7 +129,13 @@ class NaceDrexDecider:
             raise _map_error(sdk, error) from error
         elapsed = time.perf_counter() - started
 
-        outcome = DrexOutcome(model=response.model, request_id=response.request_id, duration_seconds=elapsed)
+        outcome = DrexOutcome(
+            model=response.model,
+            request_id=response.request_id,
+            duration_seconds=elapsed,
+            input_tokens=getattr(response.usage, "input_tokens", None),
+            server_time_ms=response.evaluation_time_ms,
+        )
         for qid, answer in response.choices.items():
             outcome.choices[qid] = ChoiceResult(selected=answer.choice, probabilities=dict(answer.probabilities))
         for qid, answer in response.nouls.items():

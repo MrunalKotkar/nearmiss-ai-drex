@@ -80,7 +80,7 @@ st.title("NearMiss AI")
 st.caption("NASA ASRS incident narratives · human analyst triage · voluntary reports are not independently verified by NASA")
 
 if not DEFAULT_DB.exists():
-    st.error("No imported ASRS database found. Run: python -m data_pipeline.asrs import data/asrs_june_2024.csv")
+    st.error("No imported ASRS database found. Run: python -m data_pipeline.asrs import data/asrs_jul2023_jun2024.csv")
     st.stop()
 
 with duckdb.connect(str(DEFAULT_DB), read_only=True) as db:
@@ -92,7 +92,7 @@ with duckdb.connect(str(DEFAULT_DB), read_only=True) as db:
         st.header("Search")
         phrase = st.text_input("Narrative or synopsis phrase")
         category = st.text_input("Coded category contains")
-        month = st.text_input("Incident month (YYYY-MM)", value="2024-06")
+        month = st.text_input("Incident month (YYYY-MM)", value="")
         api_base = st.text_input("Analysis service URL", value="http://127.0.0.1:8000")
     cases = search_cases(db, phrase, month, category, 1000)
     st.write(f"{len(cases)} matching reports shown")

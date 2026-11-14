@@ -35,7 +35,7 @@ isProject: false
    - [`dashboard/web/public/demos/2132897.json`](dashboard/web/public/demos/2132897.json)
    - Labels already wired in [`dashboard/web/src/app/page.tsx`](dashboard/web/src/app/page.tsx) (`savedDemos`).
 2. Add [`evaluation/DEMO_SCRIPT.md`](evaluation/DEMO_SCRIPT.md) timed to plan §12:
-   - 0:00–0:35 problem + 503-case June 2024 archive
+   - 0:00–0:35 problem + 5,127-report July 2023 – June 2024 archive
    - 0:35–1:10 open `2134024`, narrative, related reports, Evidence ready
    - 1:10–3:10 **Open saved run** (preferred live) or one fresh `/analyze` if credits/time allow
    - 3:10–3:55 switch to `2132897` saved second-round / revised claim

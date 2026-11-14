@@ -26,7 +26,7 @@ PATTERN_FAMILIES: dict[str, str] = {
     "insufficient_evidence": "The narrative does not contain enough information to assign any family.",
 }
 
-# The 503-report June 2024 ASRS sample has 168 Aircraft primary-problem records,
-# so equipment deserves its own triage choice. The two ingested FAA taxi PDFs do
+# Aircraft is a major ASRS primary-problem code (168 of the 503 June 2024 reports; 1,548 of the
+# 5,127 reports in the July 2023 - June 2024 export), so equipment deserves its own triage choice. The two ingested FAA taxi PDFs do
 # not cover aircraft-system malfunctions; keep their guidance topics unchanged.
 GUIDANCE_TOPICS: list[str] = ["communication_coordination", "runway_surface", "procedural_deviation"]

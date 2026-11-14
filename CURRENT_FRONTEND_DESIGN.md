@@ -33,7 +33,7 @@ Application shell
 
 ## Main user flow
 
-1. User searches or filters the June 2024 ASRS archive.
+1. User searches or filters the ASRS archive (July 2023 – June 2024, 5,127 reports).
 2. User selects an incident from the case directory.
 3. The case brief loads the reporter narrative, report telemetry, and historical matches.
 4. User starts collaborative analysis when the analysis service is online.
