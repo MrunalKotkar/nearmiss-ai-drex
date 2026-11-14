@@ -7,7 +7,7 @@ import re
 import duckdb
 from fastapi import FastAPI, HTTPException, Query
 
-from data_pipeline.asrs import DEFAULT_DB, get_case_context, search_cases
+from data_pipeline.asrs import DEFAULT_DB, count_cases, get_case_context, period_of, search_cases
 
 app = FastAPI(title="NearMiss ASRS data", version="1.0")
 
@@ -30,14 +30,16 @@ def stats() -> dict:
     with connect() as db:
         source_url, sample, _, count = db.execute("SELECT * FROM source_info").fetchone()
         categories = db.execute("SELECT primary_problem, count(*) AS count FROM incidents GROUP BY 1 ORDER BY 2 DESC").fetchall()
-    return {"records": count, "source_url": source_url, "sample": sample, "primary_problems": [{"name": name or "Unspecified", "count": value} for name, value in categories]}
+        period = period_of(db)
+    return {"records": count, **period, "source_url": source_url, "sample": sample, "primary_problems": [{"name": name or "Unspecified", "count": value} for name, value in categories]}
 
 
 @app.get("/cases")
-def cases(phrase: str = "", month: str = "", category: str = "", limit: int = Query(default=1000, ge=1, le=1000)) -> dict:
+def cases(phrase: str = "", month: str = "", category: str = "", limit: int = Query(default=1000, ge=1, le=1000), offset: int = Query(default=0, ge=0)) -> dict:
     with connect() as db:
-        records = search_cases(db, phrase, month, category, limit)
-    return {"cases": records, "count": len(records)}
+        records = search_cases(db, phrase, month, category, limit, offset)
+        total = count_cases(db, phrase, month, category)
+    return {"cases": records, "count": len(records), "total": total, "offset": offset}
 
 
 @app.get("/cases/{acn}/context")
