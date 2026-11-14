@@ -22,7 +22,7 @@ from agents.questions import (
     investigation_questions,
     pattern_questions,
 )
-from agents.taxonomy import PATTERN_FAMILIES
+from agents.taxonomy import GUIDANCE_TOPICS, PATTERN_FAMILIES
 from evidence.store import EvidenceStore, Passage
 from service.contracts import AgentMessage, AuxiliaryDecision, CaseContext, EvidenceRef, PatternClaim
 
@@ -195,9 +195,14 @@ def run_pattern(decider: Decider, shared: SharedState, round_number: int, challe
 
 def _retrieve_passages(store: EvidenceStore, shared: SharedState) -> list[Passage]:
     family = shared.pattern_claim.pattern_family if shared.pattern_claim else None
-    topic = family if family in PATTERN_FAMILIES and family not in ("other", "insufficient_evidence") else None
-    query = shared.case.narrative + " " + (PATTERN_FAMILIES.get(family or "", ""))
-    return store.retrieve(query, topic, k=MAX_PASSAGES)
+    if family not in GUIDANCE_TOPICS:
+        return []
+    query = shared.case.narrative
+    primary = store.retrieve(query + " " + PATTERN_FAMILIES[family], family, k=2)
+    # Give Evidence a chance to challenge a plausible but incomplete pattern
+    # claim with guidance on another family, selected by narrative overlap.
+    alternatives = [p for p in store.retrieve(query, None, k=MAX_PASSAGES * 8) if p.topic != family]
+    return (primary + alternatives[:2])[:MAX_PASSAGES]
 
 
 def run_evidence(decider: Decider, shared: SharedState, store: EvidenceStore, round_number: int) -> AgentMessage:
@@ -218,7 +223,7 @@ def run_evidence(decider: Decider, shared: SharedState, store: EvidenceStore, ro
             "supporting_incident_ids": claim.supporting_incident_ids,
         },
         "guidance_passages": [
-            {"label": label, "document": p.title, "page": p.page, "text": p.passage_text}
+            {"label": label, "topic": p.topic, "document": p.title, "page": p.page, "text": p.passage_text}
             for label, p in zip(labels, passages)
         ],
     }

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -55,7 +56,8 @@ def _save_run(result: InvestigationResult) -> None:
     """Keep every real run locally so successful/challenged runs can be reused as labeled cached demos."""
     try:
         RUNS_DIR.mkdir(parents=True, exist_ok=True)
-        path: Path = RUNS_DIR / f"{result.case_id}__{result.run_id}.json"
+        safe_case_id = re.sub(r"[^A-Za-z0-9_-]", "_", result.case_id)[:64] or "case"
+        path: Path = RUNS_DIR / f"{safe_case_id}__{result.run_id}.json"
         path.write_text(json.dumps(result.model_dump(mode="json"), indent=2, ensure_ascii=False), encoding="utf-8")
     except OSError:
         logger.warning("could not save run %s", result.run_id)

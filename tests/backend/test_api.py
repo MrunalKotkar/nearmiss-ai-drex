@@ -51,3 +51,27 @@ def test_analyze_without_key_returns_incomplete_not_fake(client, monkeypatch):
     assert result.status == "incomplete"
     assert result.agent_trace == []
     assert any(e.code == "provider_not_configured" for e in result.errors)
+
+
+def test_saved_run_stays_inside_runs_directory(tmp_path, monkeypatch):
+    from service.contracts import ErrorItem
+
+    runs_dir = tmp_path / "runs"
+    monkeypatch.setattr(app_module, "RUNS_DIR", runs_dir)
+    result = InvestigationResult(
+        case_id="../../outside",
+        run_id="run-safe",
+        status="incomplete",
+        agent_trace=[],
+        initial_claim=None,
+        revised_claim=None,
+        final_recommended_next_action=None,
+        review_priority=None,
+        references=[],
+        total_duration_seconds=0,
+        provider_model_details={},
+        errors=[ErrorItem(code="provider_unavailable", message="unavailable")],
+    )
+    app_module._save_run(result)
+    assert len(list(runs_dir.glob("*.json"))) == 1
+    assert not (tmp_path / "outside__run-safe.json").exists()

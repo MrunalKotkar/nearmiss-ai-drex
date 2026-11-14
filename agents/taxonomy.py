@@ -18,9 +18,15 @@ PATTERN_FAMILIES: dict[str, str] = {
         "A deviation from a required procedure, checklist, standard operating procedure or clearance "
         "that is not primarily explained by miscommunication or surface navigation."
     ),
-    "other": "A safety issue outside the families above, such as equipment, weather or airspace issues.",
+    "aircraft_systems": (
+        "A mechanical, electrical, avionics, flight-control or other aircraft-system malfunction. "
+        "Choose this when the malfunction is the main reported issue, even if it occurs during taxi."
+    ),
+    "other": "A safety issue outside the families above, such as weather, airspace or airport infrastructure.",
     "insufficient_evidence": "The narrative does not contain enough information to assign any family.",
 }
 
-# Families that guidance passages can be tagged with during NDI extraction.
+# The 503-report June 2024 ASRS sample has 168 Aircraft primary-problem records,
+# so equipment deserves its own triage choice. The two ingested FAA taxi PDFs do
+# not cover aircraft-system malfunctions; keep their guidance topics unchanged.
 GUIDANCE_TOPICS: list[str] = ["communication_coordination", "runway_surface", "procedural_deviation"]

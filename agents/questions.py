@@ -35,13 +35,14 @@ REVIEW_PRIORITIES: dict[str, str] = {
 
 EVIDENCE_STANCES: dict[str, str] = {
     "supports": (
-        "The guidance passages address the procedures or hazards of the claimed pattern family, and the incident "
-        "narrative is consistent with that family."
+        "The located guidance and incident narrative materially support the claimed family as the leading "
+        "precursor family, even after comparing the alternative guidance topics."
     ),
     "conflicts": (
-        "The passages or the narrative point to a different family than the one claimed, or contradict the claim."
+        "The narrative and located guidance point more strongly to a different leading family, or contradict "
+        "the claimed family. A merely secondary mention of the claimed family is not enough to support it."
     ),
-    "unresolved": "The passages are not specific enough to either support or contradict the claim.",
+    "unresolved": "The available passages do not establish which family leads, or they are not specific to this incident.",
 }
 
 COORDINATOR_DECISIONS: dict[str, str] = {
@@ -98,8 +99,9 @@ def evidence_questions(passage_labels: list[str], claimed_family: str) -> dict[s
     questions = {
         "evidence_stance": QuestionSpec(
             "choice",
-            f"Does the supplied guidance evidence support the Pattern Agent's claim that this incident belongs to "
-            f"the '{claimed_family}' family, conflict with it, or leave it unresolved?",
+            f"Compare the incident narrative with the located guidance for the claimed and alternative topics. "
+            f"Does the evidence support the Pattern Agent's claim that '{claimed_family}' is the leading "
+            f"precursor family, point more strongly to another family, or leave the comparison unresolved?",
             dict(EVIDENCE_STANCES),
         ),
         "source_missing": QuestionSpec(

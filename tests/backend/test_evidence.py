@@ -2,6 +2,8 @@
 
 from evidence.ingest import build_passages
 from evidence.store import EvidenceStore
+from agents.roles import SharedState, _retrieve_passages
+from service.contracts import PatternClaim
 
 DOC = {"document_id": "SYN", "title": "Synthetic doc", "url": "test://synthetic"}
 PARSE = {"job_id": "p1", "status": "succeeded", "result": {"document": {"page_count": 3}}}
@@ -88,3 +90,12 @@ def test_store_status_and_retrieval(synthetic_store, empty_store):
 def test_store_reports_corrupt_cache(tmp_path):
     (tmp_path / "passages.json").write_text("{not json", encoding="utf-8")
     assert EvidenceStore(tmp_path).status()["status"] == "error"
+
+
+def test_evidence_compares_guidance_topics_and_skips_uncovered_family(pattern_case, synthetic_store):
+    shared = SharedState(case=pattern_case)
+    shared.pattern_claim = PatternClaim(pattern_family="communication_coordination", supporting_incident_ids=[])
+    passages = _retrieve_passages(synthetic_store, shared)
+    assert {p.topic for p in passages} == {"communication_coordination", "runway_surface"}
+    shared.pattern_claim = PatternClaim(pattern_family="aircraft_systems", supporting_incident_ids=[])
+    assert _retrieve_passages(synthetic_store, shared) == []

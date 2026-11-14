@@ -101,8 +101,8 @@ def import_export(path: Path, db_path: Path = DEFAULT_DB) -> dict:
 def search_cases(db: duckdb.DuckDBPyConnection, phrase: str = "", month: str = "", category: str = "", limit: int = 100) -> list[dict]:
     clauses, args = [], []
     if phrase.strip():
-        clauses.append("(narrative ILIKE ? OR synopsis ILIKE ?)")
-        args.extend([f"%{phrase.strip()}%"] * 2)
+        clauses.append("(narrative ILIKE ? OR synopsis ILIKE ? OR acn ILIKE ?)")
+        args.extend([f"%{phrase.strip()}%"] * 3)
     if month.strip():
         clauses.append("report_month = ?")
         args.append(month.strip())

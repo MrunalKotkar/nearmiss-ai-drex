@@ -38,4 +38,16 @@ Open `http://127.0.0.1:3000`. The Next.js dashboard reads the local Builder A AP
 
 The former Streamlit entry point at `dashboard/app.py` remains available for reference. Streamlit is no longer a Builder A dependency.
 
+## Builder B: live integration
+
+Install Builder B's dependencies into the same virtual environment and place a working `NACE_API_KEY` in a git-ignored root `.env` (see `.env.example`). Then prepare the public FAA guidance once and start the analysis API in a third terminal:
+
+```sh
+.venv14/bin/pip install -r service/requirements.txt
+.venv14/bin/python -m evidence.ingest
+.venv14/bin/uvicorn service.app:app --host 127.0.0.1 --port 8000
+```
+
+The frontend shows both service statuses. Its saved real-run buttons open the actual Drex/NDI traces documented in [live run notes](evaluation/live_runs.md); they are labeled as prior runs. Rerun a case with **Run collaborative analysis** to get fresh decisions. The strict cited Evidence Agent conflict scenario is still being evaluated; the saved second-round example is a Coordinator response to unresolved evidence.
+
 Run the local real-data checks with `.venv14/bin/python -m unittest tests/test_builder_a.py -v`. They require the downloaded CSV and imported DuckDB file. The dashboard's live analysis path still needs Builder B's service for an end-to-end test.
