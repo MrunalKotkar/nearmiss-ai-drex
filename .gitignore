@@ -1,0 +1,28 @@
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Python and test artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+*.egg-info/
+
+# Local datasets, databases, and generated evidence
+data/*
+!data/.gitkeep
+*.duckdb
+*.duckdb.wal
+evidence/cache/
+evidence/downloads/
+
+# UI and OS artifacts
+.streamlit/secrets.toml
+.DS_Store
