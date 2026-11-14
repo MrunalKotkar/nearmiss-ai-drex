@@ -35,6 +35,7 @@ def read_export(path: Path) -> tuple[list[dict], dict]:
         fields = next(reader)
         if len(groups) != len(fields) or fields[0] != "ACN":
             raise ValueError("Expected a two-row NASA ASRS CSV header beginning with ACN")
+
         def col(group: str, field: str) -> int:
             matches = [i for i, (g, f) in enumerate(zip(groups, fields)) if g.strip() == group and f.strip() == field]
             if len(matches) != 1:
@@ -66,7 +67,7 @@ def read_export(path: Path) -> tuple[list[dict], dict]:
                 raise ValueError(f"Missing or duplicate ACN: {acn!r}")
             seen.add(acn)
             date = row[columns["date"]].strip()
-            if not re.fullmatch(r"\d{6}", date):
+            if not re.fullmatch(r"\d{4}(0[1-9]|1[0-2])", date):
                 raise ValueError(f"Invalid YYYYMM date for ACN {acn}: {date!r}")
             narrative = row[columns["narrative"]]
             if not narrative.strip():
@@ -74,6 +75,7 @@ def read_export(path: Path) -> tuple[list[dict], dict]:
             record = {name: _text(row[index]) for name, index in columns.items()}
             record["narrative"] = narrative  # Preserve source text, including whitespace.
             record["report_month"] = f"{date[:4]}-{date[4:]}"
+            record["raw_fields"] = json.dumps([{"group": group.strip(), "field": field.strip(), "value": value} for group, field, value in zip(groups, fields, row)])
             records.append(record)
     digest = hashlib.sha256(path.read_bytes()).hexdigest()
     return records, {"sha256": digest, "rows": len(records), "columns": len(fields), "missing": {key: sum(record[key] is None for record in records) for key in columns if key != "narrative"}}
@@ -83,10 +85,16 @@ def import_export(path: Path, db_path: Path = DEFAULT_DB) -> dict:
     records, stats = read_export(path)
     db_path.parent.mkdir(parents=True, exist_ok=True)
     with duckdb.connect(str(db_path)) as db:
-        db.execute("CREATE OR REPLACE TABLE incidents (acn VARCHAR PRIMARY KEY, report_month VARCHAR, narrative VARCHAR NOT NULL, supplemental_narrative VARCHAR, synopsis VARCHAR, anomaly VARCHAR, primary_problem VARCHAR, communication_breakdown VARCHAR, human_factors VARCHAR, flight_phase VARCHAR, locale VARCHAR, local_time VARCHAR)")
-        db.executemany("INSERT INTO incidents VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", [tuple(row[key] for key in ("acn", "report_month", "narrative", "supplemental_narrative", "synopsis", "anomaly", "primary_problem", "communication_breakdown", "human_factors", "flight_phase", "locale", "local_time")) for row in records])
-        db.execute("CREATE OR REPLACE TABLE source_info (source_url VARCHAR, sample VARCHAR, sha256 VARCHAR, record_count INTEGER)")
-        db.execute("INSERT INTO source_info VALUES (?, ?, ?, ?)", [SOURCE_URL, "NASA ASRS Database Online; June 2024 incident date; CSV exported 2026-11-14", stats["sha256"], stats["rows"]])
+        db.execute("BEGIN TRANSACTION")
+        try:
+            db.execute("CREATE OR REPLACE TABLE incidents (acn VARCHAR PRIMARY KEY, report_month VARCHAR, narrative VARCHAR NOT NULL, supplemental_narrative VARCHAR, synopsis VARCHAR, anomaly VARCHAR, primary_problem VARCHAR, communication_breakdown VARCHAR, human_factors VARCHAR, flight_phase VARCHAR, locale VARCHAR, local_time VARCHAR, raw_fields JSON)")
+            db.executemany("INSERT INTO incidents VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", [tuple(row[key] for key in ("acn", "report_month", "narrative", "supplemental_narrative", "synopsis", "anomaly", "primary_problem", "communication_breakdown", "human_factors", "flight_phase", "locale", "local_time", "raw_fields")) for row in records])
+            db.execute("CREATE OR REPLACE TABLE source_info (source_url VARCHAR, sample VARCHAR, sha256 VARCHAR, record_count INTEGER)")
+            db.execute("INSERT INTO source_info VALUES (?, ?, ?, ?)", [SOURCE_URL, "NASA ASRS Database Online; June 2024 incident date; CSV exported 2026-11-14", stats["sha256"], stats["rows"]])
+            db.execute("COMMIT")
+        except Exception:
+            db.execute("ROLLBACK")
+            raise
     return stats
 
 

@@ -27,3 +27,5 @@ python3.14 -m venv .venv14
 ```
 
 The dashboard sends a real `CaseContext` to Builder B's local `POST /analyze` endpoint and displays only returned real results. It also works as a case browser before the service is running, showing an explicit service warning. No API key is needed for Builder A. Keep Builder B's Nace key in local environment variables, never in source control.
+
+Run the local real-data checks with `.venv14/bin/python -m unittest tests/test_builder_a.py -v`. They require the downloaded CSV and imported DuckDB file. The dashboard's live analysis path still needs Builder B's service for an end-to-end test.
